@@ -1,7 +1,9 @@
 mvn deploy:deploy-file -DgroupId=io.mateu \
   -DartifactId=lombok \
-  -Dversion=1.18.11.43 \
+  -Dversion=1.18.11.51 \
   -Dpackaging=jar \
   -Dfile=dist/lombok-1.18.11.jar \
+  -Dsources=dist/lombok-1.18.11-sources.jar \
+  -Djavadoc=dist/lombok-1.18.11-javadoc.jar \
   -DrepositoryId=mateu-central \
   -Durl=http://nexus.mateu.io/repository/mateu-central/

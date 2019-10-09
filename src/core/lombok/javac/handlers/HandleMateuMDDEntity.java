@@ -1,438 +1,147 @@
+/*
+ * Copyright (C) 2009-2018 The Project Lombok Authors.
+ * 
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ * 
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ * 
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
+ */
 package lombok.javac.handlers;
 
-import com.sun.tools.javac.code.BoundKind;
 import com.sun.tools.javac.code.Flags;
+import com.sun.tools.javac.code.Type;
 import com.sun.tools.javac.tree.JCTree;
+import com.sun.tools.javac.tree.JCTree.JCAnnotation;
 import com.sun.tools.javac.util.List;
 import com.sun.tools.javac.util.ListBuffer;
 import com.sun.tools.javac.util.Name;
+import lombok.AccessLevel;
+import lombok.ConfigurationKeys;
+import lombok.Data;
 import lombok.MateuMDDEntity;
-import lombok.core.AST;
 import lombok.core.AnnotationValues;
-import lombok.core.configuration.CheckerFrameworkVersion;
 import lombok.core.handlers.HandlerUtil;
+import lombok.javac.Javac;
 import lombok.javac.JavacAnnotationHandler;
 import lombok.javac.JavacNode;
 import lombok.javac.JavacTreeMaker;
+import lombok.javac.handlers.HandleConstructor.SkipIfConstructorExists;
 import org.mangosdk.spi.ProviderFor;
 
-import java.lang.reflect.Field;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-
+import static lombok.core.handlers.HandlerUtil.handleFlagUsage;
 import static lombok.javac.Javac.*;
 import static lombok.javac.handlers.JavacHandlerUtil.*;
 
+/**
+ * Handles the {@code lombok.MateuMDDEntity} annotation for javac.
+ */
 @ProviderFor(JavacAnnotationHandler.class)
 public class HandleMateuMDDEntity extends JavacAnnotationHandler<MateuMDDEntity> {
-    private static final String RESULT_NAME = "result";
-
-    @Override
-    public void handle(AnnotationValues<MateuMDDEntity> annotation, JCTree.JCAnnotation ast, JavacNode annotationNode) {
-        deleteAnnotationIfNeccessary(annotationNode, MateuMDDEntity.class);
-        MateuMDDEntity ann = annotation.getInstance();
-        JavacNode typeNode = annotationNode.up();
-
-        generateMethods(typeNode, annotationNode, List.<JCTree.JCAnnotation>nil());
-    }
-
-    public void generateMethods(JavacNode typeNode, JavacNode source, List<JCTree.JCAnnotation> onParam) {
-
-        boolean notAClass = true;
-        if (typeNode.get() instanceof JCTree.JCClassDecl) {
-            long flags = ((JCTree.JCClassDecl) typeNode.get()).mods.flags;
-            notAClass = (flags & (Flags.INTERFACE | Flags.ANNOTATION | Flags.ENUM)) != 0;
-        }
-
-        if (notAClass) {
-            source.addError("@MateuMDDEntity is only supported on a class.");
-            return;
-        }
-
-        boolean isDirectDescendantOfObject = isDirectDescendantOfObject(typeNode);
-
-        //todo: comprobar que es una entidad (que está anotada con @Entity)
-
-        boolean isFinal = (((JCTree.JCClassDecl) typeNode.get()).mods.flags & Flags.FINAL) != 0;
-        boolean needsCanEqual = !isFinal || !isDirectDescendantOfObject;
-        MemberExistsResult equalsExists = methodExists("equals", typeNode, 1);
-        MemberExistsResult hashCodeExists = methodExists("hashCode", typeNode, 0);
-        MemberExistsResult canEqualExists = methodExists("canEqual", typeNode, 1);
-        switch (Collections.max(Arrays.asList(equalsExists, hashCodeExists))) {
-            case EXISTS_BY_LOMBOK:
-                return;
-            case EXISTS_BY_USER:
-                if (equalsExists == MemberExistsResult.NOT_EXISTS || hashCodeExists == MemberExistsResult.NOT_EXISTS) {
-                    // This means equals OR hashCode exists and not both.
-                    // Even though we should suppress the message about not generating these, this is such a weird and surprising situation we should ALWAYS generate a warning.
-                    // The user code couldn't possibly (barring really weird subclassing shenanigans) be in a shippable state anyway; the implementations of these 2 methods are
-                    // all inter-related and should be written by the same entity.
-                    String msg = String.format("Not generating %s: One of equals or hashCode exists. " +
-                                    "You should either write both of these or none of these (in the latter case, lombok generates them).",
-                            equalsExists == MemberExistsResult.NOT_EXISTS ? "equals" : "hashCode");
-                    source.addWarning(msg);
-                }
-                return;
-            case NOT_EXISTS:
-            default:
-                //fallthrough
-        }
-
-        JCTree.JCMethodDecl equalsMethod = createEquals(typeNode, needsCanEqual, source.get(), onParam);
-
-        injectMethod(typeNode, equalsMethod);
-
-        if (needsCanEqual && canEqualExists == MemberExistsResult.NOT_EXISTS) {
-            JCTree.JCMethodDecl canEqualMethod = createCanEqual(typeNode, source.get(), onParam);
-            injectMethod(typeNode, canEqualMethod);
-        }
-
-        JCTree.JCMethodDecl hashCodeMethod = createHashCode(typeNode, source.get());
-        injectMethod(typeNode, hashCodeMethod);
-    }
-
-    public JCTree.JCMethodDecl createHashCode(JavacNode typeNode, JCTree source) {
-        JavacTreeMaker maker = typeNode.getTreeMaker();
-
-        JCTree.JCAnnotation overrideAnnotation = maker.Annotation(genJavaLangTypeRef(typeNode, "Override"), List.<JCTree.JCExpression>nil());
-        List<JCTree.JCAnnotation> annsOnMethod = List.of(overrideAnnotation);
-        CheckerFrameworkVersion checkerFramework = getCheckerFrameworkVersion(typeNode);
-        if (checkerFramework.generateSideEffectFree()) annsOnMethod = annsOnMethod.prepend(maker.Annotation(genTypeRef(typeNode, CheckerFrameworkVersion.NAME__SIDE_EFFECT_FREE), List.<JCTree.JCExpression>nil()));
-        JCTree.JCModifiers mods = maker.Modifiers(Flags.PUBLIC, annsOnMethod);
-        JCTree.JCExpression returnType = maker.TypeIdent(CTC_INT);
-        ListBuffer<JCTree.JCStatement> statements = new ListBuffer<JCTree.JCStatement>();
-
-        Name resultName = typeNode.toName(RESULT_NAME);
-        long finalFlag = JavacHandlerUtil.addFinalIfNeeded(0L, typeNode.getContext());
-
-        /* return getClass().hashCode(); */
-        {
-            final JCTree.JCExpression callHashCodeFromClass;
-            JCTree.JCMethodInvocation getClass = maker.Apply(List.<JCTree.JCExpression>nil(),
-                    maker.Select(maker.Ident(typeNode.toName("this")), typeNode.toName("getClass")),
-                    List.<JCTree.JCExpression>nil());
-                callHashCodeFromClass = maker.Apply(List.<JCTree.JCExpression>nil(),
-                        maker.Select(getClass, typeNode.toName("hashCode")),
-                        List.<JCTree.JCExpression>nil());
-            statements.append(maker.Return(callHashCodeFromClass));
-        }
-
-
-        JCTree.JCBlock body = maker.Block(0, statements.toList());
-
-        return maker.MethodDef(mods, typeNode.toName("hashCode"), returnType,
-                List.<JCTree.JCTypeParameter>nil(), List.<JCTree.JCVariableDecl>nil(), List.<JCTree.JCExpression>nil(), body, null);
-    }
-
-
-
-    public JCTree.JCExpression createTypeReference(JavacNode type, boolean addWildcards) {
-        java.util.List<String> list = new ArrayList<String>();
-        java.util.List<Integer> genericsCount = addWildcards ? new ArrayList<Integer>() : null;
-
-        list.add(type.getName());
-        if (addWildcards) genericsCount.add(((JCTree.JCClassDecl) type.get()).typarams.size());
-        boolean staticContext = (((JCTree.JCClassDecl) type.get()).getModifiers().flags & Flags.STATIC) != 0;
-        JavacNode tNode = type.up();
-
-        while (tNode != null && tNode.getKind() == AST.Kind.TYPE) {
-            list.add(tNode.getName());
-            if (addWildcards) genericsCount.add(staticContext ? 0 : ((JCTree.JCClassDecl) tNode.get()).typarams.size());
-            if (!staticContext) staticContext = (((JCTree.JCClassDecl) tNode.get()).getModifiers().flags & Flags.STATIC) != 0;
-            tNode = tNode.up();
-        }
-        Collections.reverse(list);
-        if (addWildcards) Collections.reverse(genericsCount);
-
-        JavacTreeMaker maker = type.getTreeMaker();
-
-        JCTree.JCExpression chain = maker.Ident(type.toName(list.get(0)));
-        if (addWildcards) chain = wildcardify(maker, chain, genericsCount.get(0));
-
-        for (int i = 1; i < list.size(); i++) {
-            chain = maker.Select(chain, type.toName(list.get(i)));
-            if (addWildcards) chain = wildcardify(maker, chain, genericsCount.get(i));
-        }
-
-        return chain;
-    }
-
-    private JCTree.JCExpression wildcardify(JavacTreeMaker maker, JCTree.JCExpression expr, int count) {
-        if (count == 0) return expr;
-
-        ListBuffer<JCTree.JCExpression> wildcards = new ListBuffer<JCTree.JCExpression>();
-        for (int i = 0 ; i < count ; i++) {
-            wildcards.append(maker.Wildcard(maker.TypeBoundKind(BoundKind.UNBOUND), null));
-        }
-
-        return maker.TypeApply(expr, wildcards.toList());
-    }
-
-    public JCTree.JCMethodDecl createEquals(JavacNode typeNode, boolean needsCanEqual, JCTree source, List<JCTree.JCAnnotation> onParam) {
-        JavacTreeMaker maker = typeNode.getTreeMaker();
-
-        Name oName = typeNode.toName("o");
-        Name otherName = typeNode.toName("other");
-        Name thisName = typeNode.toName("this");
-
-        JCTree.JCAnnotation overrideAnnotation = maker.Annotation(genJavaLangTypeRef(typeNode, "Override"), List.<JCTree.JCExpression>nil());
-        List<JCTree.JCAnnotation> annsOnMethod = List.of(overrideAnnotation);
-        CheckerFrameworkVersion checkerFramework = getCheckerFrameworkVersion(typeNode);
-        if (checkerFramework.generateSideEffectFree()) {
-            annsOnMethod = annsOnMethod.prepend(maker.Annotation(genTypeRef(typeNode, CheckerFrameworkVersion.NAME__SIDE_EFFECT_FREE), List.<JCTree.JCExpression>nil()));
-        }
-        JCTree.JCModifiers mods = maker.Modifiers(Flags.PUBLIC, annsOnMethod);
-        JCTree.JCExpression objectType = genJavaLangTypeRef(typeNode, "Object");
-        JCTree.JCExpression returnType = maker.TypeIdent(CTC_BOOLEAN);
-
-        long finalFlag = JavacHandlerUtil.addFinalIfNeeded(0L, typeNode.getContext());
-
-        ListBuffer<JCTree.JCStatement> statements = new ListBuffer<JCTree.JCStatement>();
-        final List<JCTree.JCVariableDecl> params = List.of(maker.VarDef(maker.Modifiers(finalFlag | Flags.PARAMETER, onParam), oName, objectType, null));
-
-        /* if (o == this) return true; */ {
-            statements.append(maker.If(maker.Binary(CTC_EQUAL, maker.Ident(oName),
-                    maker.Ident(thisName)), returnBool(maker, true), null));
-        }
-
-        /* if (!(o instanceof Outer.Inner.MyType)) return false; */ {
-
-            JCTree.JCUnary notInstanceOf = maker.Unary(CTC_NOT, maker.Parens(maker.TypeTest(maker.Ident(oName), createTypeReference(typeNode, false))));
-            statements.append(maker.If(notInstanceOf, returnBool(maker, false), null));
-        }
-
-        /* Outer.Inner.MyType<?> other = (Outer.Inner.MyType<?>) o; */ {
-            if (needsCanEqual) {
-                final JCTree.JCExpression selfType1 = createTypeReference(typeNode, true), selfType2 = createTypeReference(typeNode, true);
-
-                statements.append(
-                        maker.VarDef(maker.Modifiers(finalFlag), otherName, selfType1, maker.TypeCast(selfType2, maker.Ident(oName))));
-            }
-        }
-
-        if (false) {
-            addPrintln(maker, statements, typeNode, "Hola aaa!!!");
-
-            JCTree.JCAnnotation idAnnotation = maker.Annotation(chainDots(typeNode, "javax", "persistence", "Id"), List.<JCTree.JCExpression>nil());
-            JCTree idAnnotationType = idAnnotation.getAnnotationType();
-
-            java.util.List<JavacNode> fields = new ArrayList<JavacNode>();
-            for (JavacNode potentialField : typeNode.down()) {
-                //addPrintln(maker, statements, typeNode, "campo: " + potentialField.getName());
-                if (potentialField.getKind() != AST.Kind.FIELD) continue;
-
-                if (true) {
-                    JCTree field = potentialField.get();
-                    if (field instanceof JCTree.JCVariableDecl) {
-                        //addPrintln(maker, statements, typeNode, "es jcvariabledecl");
-                        JCTree.JCVariableDecl f = (JCTree.JCVariableDecl) field;
-                        if (f.mods.annotations != null) {
-                            //addPrintln(maker, statements, typeNode, "f.mods.annotations != null");
-                            for (JCTree.JCAnnotation childAnnotation : f.mods.annotations) {
-                                if (false) {
-                                    addPrintln(maker, statements, typeNode, ">>>>>>>>>>>>>: anotacion " + childAnnotation.getAnnotationType().toString());
-                                    addPrintln(maker, statements, typeNode, ">>>>>>>>>>>>>: a " + idAnnotationType.toString());
-                                    addPrintln(maker, statements, typeNode, ">>>>>>>>>>>>>: b " + childAnnotation.toString());
-                                    addPrintln(maker, statements, typeNode, ">>>>>>>>>>>>>: c " + idAnnotation.toString());
-                                    addPrintln(maker, statements, typeNode, ">>>>>>>>>>>>>: d " + childAnnotation.getAnnotationType().getTree().toString());
-                                    if (childAnnotation.equals(idAnnotation)) addPrintln(maker, statements, typeNode, "LA ENCONTRE 1: anotacion " + childAnnotation.toString());
-                                    if (childAnnotation.toString().equals(idAnnotation.toString())) addPrintln(maker, statements, typeNode, "LA ENCONTRE 2: anotacion " + childAnnotation.toString());
-                                    if (childAnnotation.getAnnotationType().getTree().equals(idAnnotationType.getTree())) addPrintln(maker, statements, typeNode, "LA ENCONTRE 3: anotacion " + childAnnotation.toString());
-                                }
-                                if (childAnnotation.getAnnotationType().toString().equals("Id")) addPrintln(maker, statements, typeNode, "LA ENCONTRE 4: anotacion " + childAnnotation.getAnnotationType().toString());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-
-        /* if (!other.canEqual((java.lang.Object) this)) return false; */ {
-            if (needsCanEqual) {
-                List<JCTree.JCExpression> exprNil = List.nil();
-                JCTree.JCExpression thisRef = maker.Ident(thisName);
-                JCTree.JCExpression castThisRef = maker.TypeCast(genJavaLangTypeRef(typeNode, "Object"), thisRef);
-                JCTree.JCExpression equalityCheck = maker.Apply(exprNil,
-                        maker.Select(maker.Ident(otherName), typeNode.toName("canEqual")),
-                        List.of(castThisRef));
-                statements.append(maker.If(maker.Unary(CTC_NOT, equalityCheck), returnBool(maker, false), null));
-            }
-        }
-
-
-        java.util.List<JavacNode> idFields = getIdFields(typeNode, maker);
-
-        for (JavacNode memberNode : idFields) {
-            //addPrintln(maker, statements, typeNode, memberNode.getName());
-            boolean isMethod = memberNode.getKind() == AST.Kind.METHOD;
-
-            JCTree.JCExpression fType = unnotate(getFieldType(memberNode, HandlerUtil.FieldAccess.PREFER_FIELD));
-            JCTree.JCExpression thisFieldAccessor = isMethod ? createMethodAccessor(maker, memberNode) : createFieldAccessor(maker, memberNode, HandlerUtil.FieldAccess.PREFER_FIELD);
-            JCTree.JCExpression otherFieldAccessor = isMethod ? createMethodAccessor(maker, memberNode, maker.Ident(otherName)) : createFieldAccessor(maker, memberNode, HandlerUtil.FieldAccess.PREFER_FIELD, maker.Ident(otherName));
-            if (fType instanceof JCTree.JCPrimitiveTypeTree) {
-                switch (((JCTree.JCPrimitiveTypeTree)fType).getPrimitiveTypeKind()) {
-                    case FLOAT:
-                        /* if (Float.compare(this.fieldName, other.fieldName) != 0) return false; */
-                        statements.append(generateCompareFloatOrDouble(thisFieldAccessor, otherFieldAccessor, maker, typeNode, false));
-                        break;
-                    case DOUBLE:
-                        /* if (Double.compare(this.fieldName, other.fieldName) != 0) return false; */
-                        statements.append(generateCompareFloatOrDouble(thisFieldAccessor, otherFieldAccessor, maker, typeNode, true));
-                        break;
-                    default:
-                        /* if (this.fieldName != other.fieldName) return false; */
-                        statements.append(
-                                maker.If(maker.Binary(CTC_NOT_EQUAL, thisFieldAccessor, otherFieldAccessor), returnBool(maker, false), null));
-                        break;
-                }
-            } else if (fType instanceof JCTree.JCArrayTypeTree) {
-                JCTree.JCArrayTypeTree array = (JCTree.JCArrayTypeTree) fType;
-                /* if (!java.util.Arrays.deepEquals(this.fieldName, other.fieldName)) return false; //use equals for primitive arrays. */
-                boolean multiDim = unnotate(array.elemtype) instanceof JCTree.JCArrayTypeTree;
-                boolean primitiveArray = unnotate(array.elemtype) instanceof JCTree.JCPrimitiveTypeTree;
-                boolean useDeepEquals = multiDim || !primitiveArray;
-
-                JCTree.JCExpression eqMethod = chainDots(typeNode, "java", "util", "Arrays", useDeepEquals ? "deepEquals" : "equals");
-                List<JCTree.JCExpression> args = List.of(thisFieldAccessor, otherFieldAccessor);
-                statements.append(maker.If(maker.Unary(CTC_NOT,
-                        maker.Apply(List.<JCTree.JCExpression>nil(), eqMethod, args)), returnBool(maker, false), null));
-            } else /* objects */ {
-                /* final java.lang.Object this$fieldName = this.fieldName; */
-                /* final java.lang.Object other$fieldName = other.fieldName; */
-                /* if (this$fieldName == null ? other$fieldName != null : !this$fieldName.equals(other$fieldName)) return false; */
-                Name thisDollarFieldName = memberNode.toName("this" + (isMethod ? "$$" : "$") + memberNode.getName());
-                Name otherDollarFieldName = memberNode.toName("other" + (isMethod ? "$$" : "$") + memberNode.getName());
-
-                statements.append(maker.VarDef(maker.Modifiers(finalFlag), thisDollarFieldName, genJavaLangTypeRef(typeNode, "Object"), thisFieldAccessor));
-                statements.append(maker.VarDef(maker.Modifiers(finalFlag), otherDollarFieldName, genJavaLangTypeRef(typeNode, "Object"), otherFieldAccessor));
-
-                JCTree.JCExpression thisEqualsNull = maker.Binary(CTC_EQUAL, maker.Ident(thisDollarFieldName), maker.Literal(CTC_BOT, null));
-                JCTree.JCExpression otherNotEqualsNull = maker.Binary(CTC_NOT_EQUAL, maker.Ident(otherDollarFieldName), maker.Literal(CTC_BOT, null));
-                JCTree.JCExpression thisEqualsThat = maker.Apply(List.<JCTree.JCExpression>nil(),
-                        maker.Select(maker.Ident(thisDollarFieldName), typeNode.toName("equals")),
-                        List.<JCTree.JCExpression>of(maker.Ident(otherDollarFieldName)));
-                JCTree.JCExpression fieldsAreNotEqual = maker.Conditional(thisEqualsNull, otherNotEqualsNull, maker.Unary(CTC_NOT, thisEqualsThat));
-                statements.append(maker.If(fieldsAreNotEqual, returnBool(maker, false), null));
-            }
-        }
-
-        /* return true; */ {
-            statements.append(returnBool(maker, true));
-        }
-
-        JCTree.JCBlock body = maker.Block(0, statements.toList());
-        return recursiveSetGeneratedBy(maker.MethodDef(mods, typeNode.toName("equals"), returnType, List.<JCTree.JCTypeParameter>nil(), params, List.<JCTree.JCExpression>nil(), body, null), source, typeNode.getContext());
-    }
-
-    private void addPrintln(JavacTreeMaker maker, ListBuffer<JCTree.JCStatement> statements, JavacNode typeNode, String msg) {
-        JCTree.JCExpression printExpression = maker.Ident(typeNode.toName("System"));
-        printExpression = maker.Select(printExpression, typeNode.toName("out"));
-        printExpression = maker.Select(printExpression, typeNode.toName("println"));
-        List<JCTree.JCExpression> printArgs = List.from(new JCTree.JCExpression[] {maker.Literal(msg)});
-        printExpression = maker.Apply(List.<JCTree.JCExpression>nil(), printExpression, printArgs);
-        JCTree.JCStatement call = maker.Exec(printExpression);
-        statements.append(call);
-    }
-
-    private java.util.List<JavacNode> getIdFields(JavacNode typeNode, JavacTreeMaker maker) {
-        //JCTree.JCAnnotation idAnnotation = maker.Annotation(chainDots(typeNode, "javax", "persistence", "Id"), List.<JCTree.JCExpression>nil());
-
-        java.util.List<JavacNode> fields = new ArrayList<JavacNode>();
-        for (JavacNode potentialField : typeNode.down()) {
-            if (potentialField.getKind() != AST.Kind.FIELD) continue;
-            if (fieldContainsAnnotation(potentialField.get(), "Id")) fields.add(potentialField);
-        }
-
-        return fields;
-    }
-
-    protected boolean fieldContainsAnnotation(JCTree field, String annotationName) {
-        if (!(field instanceof JCTree.JCVariableDecl)) return false;
-        JCTree.JCVariableDecl f = (JCTree.JCVariableDecl) field;
-        if (f.mods.annotations == null) return false;
-        for (JCTree.JCAnnotation childAnnotation : f.mods.annotations) {
-            if (childAnnotation.getAnnotationType().toString().equals(annotationName)) return true;
-        }
-        return false;
-    }
-
-    protected boolean fieldContainsAnnotation(JCTree field, JCTree annotation) {
-        if (!(field instanceof JCTree.JCVariableDecl)) return false;
-        JCTree.JCVariableDecl f = (JCTree.JCVariableDecl) field;
-        if (f.mods.annotations == null) return false;
-        for (JCTree.JCAnnotation childAnnotation : f.mods.annotations) {
-            if (childAnnotation == annotation) return true;
-        }
-        return false;
-    }
-
-    public JCTree.JCMethodDecl createCanEqual(JavacNode typeNode, JCTree source, List<JCTree.JCAnnotation> onParam) {
-        /* protected boolean canEqual(final java.lang.Object other) {
-         *     return other instanceof Outer.Inner.MyType;
-         * }
-         */
-        JavacTreeMaker maker = typeNode.getTreeMaker();
-
-        List<JCTree.JCAnnotation> annsOnMethod = List.nil();
-        CheckerFrameworkVersion checkerFramework = getCheckerFrameworkVersion(typeNode);
-        if (checkerFramework.generateSideEffectFree()) {
-            annsOnMethod = annsOnMethod.prepend(maker.Annotation(genTypeRef(typeNode, CheckerFrameworkVersion.NAME__SIDE_EFFECT_FREE), List.<JCTree.JCExpression>nil()));
-        }
-        JCTree.JCModifiers mods = maker.Modifiers(Flags.PROTECTED, annsOnMethod);
-        JCTree.JCExpression returnType = maker.TypeIdent(CTC_BOOLEAN);
-        Name canEqualName = typeNode.toName("canEqual");
-        JCTree.JCExpression objectType = genJavaLangTypeRef(typeNode, "Object");
-        Name otherName = typeNode.toName("other");
-        long flags = JavacHandlerUtil.addFinalIfNeeded(Flags.PARAMETER, typeNode.getContext());
-        List<JCTree.JCVariableDecl> params = List.of(maker.VarDef(maker.Modifiers(flags, onParam), otherName, objectType, null));
-
-        JCTree.JCBlock body = maker.Block(0, List.<JCTree.JCStatement>of(
-                maker.Return(maker.TypeTest(maker.Ident(otherName), createTypeReference(typeNode, false)))));
-
-        return recursiveSetGeneratedBy(maker.MethodDef(mods, canEqualName, returnType, List.<JCTree.JCTypeParameter>nil(), params, List.<JCTree.JCExpression>nil(), body, null), source, typeNode.getContext());
-    }
-
-    public JCTree.JCStatement generateCompareFloatOrDouble(JCTree.JCExpression thisDotField, JCTree.JCExpression otherDotField,
-                                                           JavacTreeMaker maker, JavacNode node, boolean isDouble) {
-
-        /* if (Float.compare(fieldName, other.fieldName) != 0) return false; */
-        JCTree.JCExpression clazz = genJavaLangTypeRef(node, isDouble ? "Double" : "Float");
-        List<JCTree.JCExpression> args = List.of(thisDotField, otherDotField);
-        JCTree.JCBinary compareCallEquals0 = maker.Binary(CTC_NOT_EQUAL, maker.Apply(
-                List.<JCTree.JCExpression>nil(), maker.Select(clazz, node.toName("compare")), args), maker.Literal(0));
-        return maker.If(compareCallEquals0, returnBool(maker, false), null);
-    }
-
-    public JCTree.JCStatement returnBool(JavacTreeMaker maker, boolean bool) {
-        return maker.Return(maker.Literal(CTC_BOOLEAN, bool ? 1 : 0));
-    }
-
-    private boolean jcAnnotatedTypeInit;
-    private Class<?> jcAnnotatedTypeClass = null;
-    private Field jcAnnotatedTypeUnderlyingTypeField = null;
-
-    private JCTree.JCExpression unnotate(JCTree.JCExpression type) {
-        if (!isJcAnnotatedType(type)) return type;
-        if (jcAnnotatedTypeUnderlyingTypeField == null) return type;
-        try {
-            return (JCTree.JCExpression) jcAnnotatedTypeUnderlyingTypeField.get(type);
-        } catch (Exception ignore) {}
-        return type;
-    }
-
-    private boolean isJcAnnotatedType(JCTree.JCExpression o) {
-        if (o == null) return false;
-        if (!jcAnnotatedTypeInit) {
-            try {
-                jcAnnotatedTypeClass = Class.forName("com.sun.tools.javac.tree.JCTree$JCAnnotatedType", false, o.getClass().getClassLoader());
-                jcAnnotatedTypeUnderlyingTypeField = jcAnnotatedTypeClass.getDeclaredField("underlyingType");
-            }
-            catch (Exception ignore) {}
-            jcAnnotatedTypeInit = true;
-        }
-        return jcAnnotatedTypeClass == o.getClass();
-    }
-
+	private HandleConstructor handleConstructor = new HandleConstructor();
+	private HandleGetter handleGetter = new HandleGetter();
+	private HandleSetter handleSetter = new HandleSetter();
+	private HandleJPAEqualsAndHashCode handleEqualsAndHashCode = new HandleJPAEqualsAndHashCode();
+	private HandleToString handleToString = new HandleToString();
+	
+	@Override public void handle(AnnotationValues<MateuMDDEntity> annotation, JCAnnotation ast, JavacNode annotationNode) {
+		//handleFlagUsage(annotationNode, ConfigurationKeys.DATA_FLAG_USAGE, "@Data");
+		
+		//deleteAnnotationIfNeccessary(annotationNode, MateuMDDEntity.class);
+		JavacNode typeNode = annotationNode.up();
+		boolean notAClass = !isClass(typeNode);
+
+		//annotationNode.addError("@MateuMDDEntity se aplica aquí.");
+
+		if (notAClass) {
+			annotationNode.addError("@MateuMDDEntity is only supported on a class.");
+			return;
+		}
+		
+		//String staticConstructorName = annotation.getInstance().staticConstructor();
+		
+		// TODO move this to the end OR move it to the top in eclipse.
+		//handleConstructor.generateRequiredArgsConstructor(typeNode, AccessLevel.PUBLIC, staticConstructorName, SkipIfConstructorExists.YES, annotationNode);
+		handleConstructor.generateExtraNoArgsConstructor(typeNode, annotationNode);
+		generateEntityAnnotation(typeNode, annotationNode);
+		//todo: añadir campo version
+		generateVersionField(typeNode, annotationNode);
+		handleGetter.generateGetterForType(typeNode, annotationNode, AccessLevel.PUBLIC, true, List.<JCAnnotation>nil());
+		handleSetter.generateSetterForType(typeNode, annotationNode, AccessLevel.PUBLIC, true, List.<JCAnnotation>nil(), List.<JCAnnotation>nil());
+		handleEqualsAndHashCode.generateMethods(typeNode, annotationNode, List.<JCTree.JCAnnotation>nil());
+		generateToStringForType(typeNode, annotationNode);
+	}
+
+	private void generateToStringForType(JavacNode typeNode, JavacNode annotationNode) {
+
+		if (!MemberExistsResult.EXISTS_BY_USER.equals(methodExists("toString", typeNode, false, 0))) {
+
+			JavacTreeMaker maker = typeNode.getTreeMaker();
+			ListBuffer<JCTree.JCStatement> statements = new ListBuffer<JCTree.JCStatement>();
+
+			java.util.List<JavacNode> idFields = HandleJPAEqualsAndHashCode.getIdFields(typeNode, maker);
+
+			if (!MemberExistsResult.NOT_EXISTS.equals(methodExists("getName", typeNode, false, 0))) {
+				statements.append(maker.Return(maker.Apply(List.<JCTree.JCExpression>nil(), maker.Select(maker.Ident(typeNode.toName("this")), typeNode.toName("getName")), List.<JCTree.JCExpression>nil())));
+			} else if (idFields.size() > 0) {
+				JCTree.JCExpression concatenation = maker.Literal("");
+				for (int pos = 0; pos < idFields.size(); pos++) {
+					if (pos > 0) concatenation = maker.Binary(CTC_PLUS, concatenation, maker.Literal(" "));
+					JavacNode field = idFields.get(pos);
+					concatenation = maker.Binary(CTC_PLUS, concatenation, maker.Apply(List.<JCTree.JCExpression>nil(), maker.Select(maker.Ident(typeNode.toName("this")), typeNode.toName(JavacHandlerUtil.toGetterName(field))), List.<JCTree.JCExpression>nil()));
+				}
+				statements.append(maker.Return(concatenation));
+			} else {
+				final JCTree.JCExpression callClassSimpleName;
+				JCTree.JCMethodInvocation getClass = maker.Apply(List.<JCTree.JCExpression>nil(),
+						maker.Select(maker.Ident(typeNode.toName("this")), typeNode.toName("getClass")),
+						List.<JCTree.JCExpression>nil());
+				callClassSimpleName = maker.Apply(List.<JCTree.JCExpression>nil(),
+						maker.Select(getClass, typeNode.toName("getSimpleName")),
+						List.<JCTree.JCExpression>nil());
+
+				JCTree.JCExpression printExpression = maker.Select(chainDots(typeNode, "io", "mateu", "mdd", "core", "util", "Helper"), typeNode.toName("capitalize"));
+				List<JCTree.JCExpression> printArgs = List.from(new JCTree.JCExpression[] {callClassSimpleName});
+				printExpression = maker.Apply(List.<JCTree.JCExpression>nil(), printExpression, printArgs);
+
+				statements.append(maker.Return(printExpression));
+			}
+
+			JCTree.JCBlock body = maker.Block(0, statements.toList());
+			injectMethod(typeNode, maker.MethodDef(maker.Modifiers(toJavacModifier(AccessLevel.PUBLIC)), typeNode.toName("toString"), chainDots(typeNode, "java", "lang", "String"), List.<JCTree.JCTypeParameter>nil(), List.<JCTree.JCVariableDecl>nil(), List.<JCTree.JCExpression>nil(), body, null));
+
+		}
+
+	}
+
+	private void generateEntityAnnotation(JavacNode typeNode, JavacNode source) {
+		JCTree.JCClassDecl typeDecl = null;
+		if (typeNode.get() instanceof JCTree.JCClassDecl) typeDecl = (JCTree.JCClassDecl) typeNode.get();
+		addAnnotation(typeDecl.mods, typeNode, source.get().pos, source.get(), typeNode.getContext(),"javax.persistence.Entity", null);
+	}
+
+	private void generateVersionField(JavacNode typeNode, JavacNode source) {
+
+		JavacTreeMaker maker = typeNode.getTreeMaker();
+
+		JCTree.JCModifiers mods = maker.Modifiers(toJavacModifier(AccessLevel.PACKAGE));
+
+		JCTree.JCVariableDecl def;
+		JavacNode field = injectField(typeNode, def = maker.VarDef(mods, typeNode.toName("__version"), maker.TypeIdent(CTC_INT), maker.Literal(0)));
+		addAnnotation(def.mods, field, source.get().pos, source.get(), typeNode.getContext(),"javax.persistence.Version", null);
+		handleGetter.generateGetterForField(field, source.get(), AccessLevel.PROTECTED, false, List.<JCAnnotation>nil());
+
+	}
 }
