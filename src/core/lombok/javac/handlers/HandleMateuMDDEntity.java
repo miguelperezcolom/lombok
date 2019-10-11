@@ -21,27 +21,18 @@
  */
 package lombok.javac.handlers;
 
-import com.sun.tools.javac.code.Flags;
-import com.sun.tools.javac.code.Type;
 import com.sun.tools.javac.tree.JCTree;
 import com.sun.tools.javac.tree.JCTree.JCAnnotation;
 import com.sun.tools.javac.util.List;
 import com.sun.tools.javac.util.ListBuffer;
-import com.sun.tools.javac.util.Name;
 import lombok.AccessLevel;
-import lombok.ConfigurationKeys;
-import lombok.Data;
 import lombok.MateuMDDEntity;
 import lombok.core.AnnotationValues;
-import lombok.core.handlers.HandlerUtil;
-import lombok.javac.Javac;
 import lombok.javac.JavacAnnotationHandler;
 import lombok.javac.JavacNode;
 import lombok.javac.JavacTreeMaker;
-import lombok.javac.handlers.HandleConstructor.SkipIfConstructorExists;
 import org.mangosdk.spi.ProviderFor;
 
-import static lombok.core.handlers.HandlerUtil.handleFlagUsage;
 import static lombok.javac.Javac.*;
 import static lombok.javac.handlers.JavacHandlerUtil.*;
 
@@ -76,8 +67,8 @@ public class HandleMateuMDDEntity extends JavacAnnotationHandler<MateuMDDEntity>
 		//handleConstructor.generateRequiredArgsConstructor(typeNode, AccessLevel.PUBLIC, staticConstructorName, SkipIfConstructorExists.YES, annotationNode);
 		handleConstructor.generateExtraNoArgsConstructor(typeNode, annotationNode);
 		generateEntityAnnotation(typeNode, annotationNode);
-		//todo: añadir campo version
 		generateVersionField(typeNode, annotationNode);
+		generateIdField(typeNode, annotationNode);
 		handleGetter.generateGetterForType(typeNode, annotationNode, AccessLevel.PUBLIC, true, List.<JCAnnotation>nil());
 		handleSetter.generateSetterForType(typeNode, annotationNode, AccessLevel.PUBLIC, true, List.<JCAnnotation>nil(), List.<JCAnnotation>nil());
 		handleEqualsAndHashCode.generateMethods(typeNode, annotationNode, List.<JCTree.JCAnnotation>nil());
@@ -144,4 +135,23 @@ public class HandleMateuMDDEntity extends JavacAnnotationHandler<MateuMDDEntity>
 		handleGetter.generateGetterForField(field, source.get(), AccessLevel.PROTECTED, false, List.<JCAnnotation>nil());
 
 	}
+
+	private void generateIdField(JavacNode typeNode, JavacNode source) {
+
+		JavacTreeMaker maker = typeNode.getTreeMaker();
+		java.util.List<JavacNode> idFields = HandleJPAEqualsAndHashCode.getIdFields(typeNode, maker);
+
+		if (idFields.size() == 0) {
+			JCTree.JCModifiers mods = maker.Modifiers(toJavacModifier(AccessLevel.PRIVATE));
+
+			JCTree.JCVariableDecl def;
+			JavacNode field = injectField(typeNode, def = maker.VarDef(mods, typeNode.toName("id"), maker.TypeIdent(CTC_LONG), maker.Literal(0)));
+			addAnnotation(def.mods, field, source.get().pos, source.get(), typeNode.getContext(),"javax.persistence.Id", null);
+			addAnnotation(def.mods, field, source.get().pos, source.get(), typeNode.getContext(),"javax.persistence.GeneratedValue", maker.Assign(maker.Ident(typeNode.toName("strategy")), chainDots(typeNode, "javax", "persistence", "GenerationType", "IDENTITY")));
+			handleGetter.generateGetterForField(field, source.get(), AccessLevel.PUBLIC, false, List.<JCAnnotation>nil());
+			handleSetter.generateSetterForField(field, source, AccessLevel.PUBLIC, List.<JCAnnotation>nil(), List.<JCAnnotation>nil());
+		}
+
+	}
+
 }

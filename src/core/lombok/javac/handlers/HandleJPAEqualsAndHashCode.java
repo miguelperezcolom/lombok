@@ -279,11 +279,16 @@ public class HandleJPAEqualsAndHashCode extends JavacAnnotationHandler<JPAEquals
                         statements.append(generateCompareFloatOrDouble(thisFieldAccessor, otherFieldAccessor, maker, typeNode, true));
                         break;
                     case INT:
+                        /* si id == 0 return false; */
+                        statements.append(maker.If(maker.Binary(CTC_EQUAL, thisFieldAccessor, maker.Literal(0)), returnBool(maker, false), null));
+                        /* if (Double.compare(this.fieldName, other.fieldName) != 0) return false; */
+                        statements.append(generateCompareIntOrLong(thisFieldAccessor, otherFieldAccessor, maker, typeNode, false));
+                        break;
                     case LONG:
                         /* si id == 0 return false; */
                         statements.append(maker.If(maker.Binary(CTC_EQUAL, thisFieldAccessor, maker.Literal(0)), returnBool(maker, false), null));
                         /* if (Double.compare(this.fieldName, other.fieldName) != 0) return false; */
-                        statements.append(generateCompareFloatOrDouble(thisFieldAccessor, otherFieldAccessor, maker, typeNode, true));
+                        statements.append(generateCompareIntOrLong(thisFieldAccessor, otherFieldAccessor, maker, typeNode, true));
                         break;
                     default:
                         /* if (this.fieldName != other.fieldName) return false; */
@@ -445,6 +450,17 @@ public class HandleJPAEqualsAndHashCode extends JavacAnnotationHandler<JPAEquals
 
         /* if (Float.compare(fieldName, other.fieldName) != 0) return false; */
         JCTree.JCExpression clazz = genJavaLangTypeRef(node, isDouble ? "Double" : "Float");
+        List<JCTree.JCExpression> args = List.of(thisDotField, otherDotField);
+        JCTree.JCBinary compareCallEquals0 = maker.Binary(CTC_NOT_EQUAL, maker.Apply(
+                List.<JCTree.JCExpression>nil(), maker.Select(clazz, node.toName("compare")), args), maker.Literal(0));
+        return maker.If(compareCallEquals0, returnBool(maker, false), null);
+    }
+
+    public JCTree.JCStatement generateCompareIntOrLong(JCTree.JCExpression thisDotField, JCTree.JCExpression otherDotField,
+                                                           JavacTreeMaker maker, JavacNode node, boolean isLong) {
+
+        /* if (Float.compare(fieldName, other.fieldName) != 0) return false; */
+        JCTree.JCExpression clazz = genJavaLangTypeRef(node, isLong ? "Long" : "Integer");
         List<JCTree.JCExpression> args = List.of(thisDotField, otherDotField);
         JCTree.JCBinary compareCallEquals0 = maker.Binary(CTC_NOT_EQUAL, maker.Apply(
                 List.<JCTree.JCExpression>nil(), maker.Select(clazz, node.toName("compare")), args), maker.Literal(0));

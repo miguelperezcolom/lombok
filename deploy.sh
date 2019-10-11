@@ -1,6 +1,6 @@
 mvn deploy:deploy-file -DgroupId=io.mateu \
   -DartifactId=lombok \
-  -Dversion=1.18.11.43 \
+  -Dversion=1.18.11.44 \
   -Dpackaging=jar \
   -Dfile=dist/lombok-1.18.11.jar \
   -DrepositoryId=mateu-central \
