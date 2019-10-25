@@ -11,6 +11,7 @@ import lombok.core.AST;
 import lombok.core.AnnotationValues;
 import lombok.core.configuration.CheckerFrameworkVersion;
 import lombok.core.handlers.HandlerUtil;
+import lombok.javac.Javac;
 import lombok.javac.JavacAnnotationHandler;
 import lombok.javac.JavacNode;
 import lombok.javac.JavacTreeMaker;
@@ -34,10 +35,10 @@ public class HandleJPAEqualsAndHashCode extends JavacAnnotationHandler<JPAEquals
         JPAEqualsAndHashCode ann = annotation.getInstance();
         JavacNode typeNode = annotationNode.up();
 
-        generateMethods(typeNode, annotationNode, List.<JCTree.JCAnnotation>nil());
+        generateMethods(typeNode, annotationNode, annotationNode, List.<JCTree.JCAnnotation>nil());
     }
 
-    public void generateMethods(JavacNode typeNode, JavacNode source, List<JCTree.JCAnnotation> onParam) {
+    public void generateMethods(JavacNode typeNode, JavacNode annotationNode, JavacNode source, List<JCTree.JCAnnotation> onParam) {
 
         boolean notAClass = true;
         if (typeNode.get() instanceof JCTree.JCClassDecl) {
@@ -82,7 +83,7 @@ public class HandleJPAEqualsAndHashCode extends JavacAnnotationHandler<JPAEquals
                 //fallthrough
         }
 
-        JCTree.JCMethodDecl equalsMethod = createEquals(typeNode, needsCanEqual, source.get(), onParam);
+        JCTree.JCMethodDecl equalsMethod = createEquals(typeNode, annotationNode, needsCanEqual, source.get(), onParam);
 
         injectMethod(typeNode, equalsMethod);
 
@@ -184,7 +185,7 @@ public class HandleJPAEqualsAndHashCode extends JavacAnnotationHandler<JPAEquals
         return maker.TypeApply(expr, wildcards.toList());
     }
 
-    public JCTree.JCMethodDecl createEquals(JavacNode typeNode, boolean needsCanEqual, JCTree source, List<JCTree.JCAnnotation> onParam) {
+    public JCTree.JCMethodDecl createEquals(JavacNode typeNode, JavacNode annotationNode, boolean needsCanEqual, JCTree source, List<JCTree.JCAnnotation> onParam) {
 
         /*
 
@@ -254,7 +255,7 @@ public class HandleJPAEqualsAndHashCode extends JavacAnnotationHandler<JPAEquals
         }
 
 
-        java.util.List<JavacNode> idFields = getIdFields(typeNode, maker);
+        java.util.List<JavacNode> idFields = getIdFields(typeNode, annotationNode,  maker);
 
         for (JavacNode memberNode : idFields) {
             //addPrintln(maker, statements, typeNode, memberNode.getName());
@@ -375,14 +376,50 @@ public class HandleJPAEqualsAndHashCode extends JavacAnnotationHandler<JPAEquals
         statements.append(call);
     }
 
-    public static java.util.List<JavacNode> getIdFields(JavacNode typeNode, JavacTreeMaker maker) {
+    public static java.util.List<JavacNode> getIdFields(JavacNode typeNode, JavacNode annotationNode, JavacTreeMaker maker) {
         //JCTree.JCAnnotation idAnnotation = maker.Annotation(chainDots(typeNode, "javax", "persistence", "Id"), List.<JCTree.JCExpression>nil());
 
         java.util.List<JavacNode> fields = new ArrayList<JavacNode>();
-        for (JavacNode potentialField : typeNode.down()) {
-            if (potentialField.getKind() != AST.Kind.FIELD) continue;
-            if (fieldContainsAnnotation(potentialField.get(), "Id")) fields.add(potentialField);
-            //if (fieldContainsAnnotation(potentialField.get(), chainDots(potentialField, "javax", "persistence", "Id"))) fields.add(potentialField);
+        while (typeNode != null) {
+            for (JavacNode potentialField : typeNode.down()) {
+                if (potentialField.getKind() != AST.Kind.FIELD) continue;
+                if (fieldContainsAnnotation(potentialField.get(), "Id")) fields.add(potentialField);
+                else if (fieldContainsAnnotation(potentialField.get(), "javax.persistence.Id")) fields.add(potentialField);
+                else if (fieldContainsAnnotation(potentialField.get(), chainDots(potentialField, "javax", "persistence", "Id"))) fields.add(potentialField);
+            }
+            typeNode = typeNode.up();
+        }
+
+        return fields;
+    }
+
+    public static java.util.List<JavacNode> getVersionFields(JavacNode typeNode, JavacNode annotationNode, JavacTreeMaker maker) {
+        //JCTree.JCAnnotation idAnnotation = maker.Annotation(chainDots(typeNode, "javax", "persistence", "Id"), List.<JCTree.JCExpression>nil());
+
+        java.util.List<JavacNode> fields = new ArrayList<JavacNode>();
+        while (typeNode != null) {
+            for (JavacNode potentialField : typeNode.down()) {
+                if (potentialField.getKind() != AST.Kind.FIELD) continue;
+                if (fieldContainsAnnotation(potentialField.get(), "Version")) fields.add(potentialField);
+                else if (fieldContainsAnnotation(potentialField.get(), "javax.persistence.Version")) fields.add(potentialField);
+                else if (fieldContainsAnnotation(potentialField.get(), chainDots(potentialField, "javax", "persistence", "Version"))) fields.add(potentialField);
+            }
+            typeNode = typeNode.up();
+        }
+
+        return fields;
+    }
+
+
+    public static java.util.List<JavacNode> getNameFields(JavacNode typeNode, JavacTreeMaker maker) {
+
+        java.util.List<JavacNode> fields = new ArrayList<JavacNode>();
+        while (typeNode != null) {
+            for (JavacNode potentialField : typeNode.down()) {
+                if (potentialField.getKind() != AST.Kind.FIELD) continue;
+                if ("name".equals(potentialField.getName())) fields.add(potentialField);
+            }
+            typeNode = typeNode.up();
         }
 
         return fields;
@@ -393,7 +430,7 @@ public class HandleJPAEqualsAndHashCode extends JavacAnnotationHandler<JPAEquals
         JCTree.JCVariableDecl f = (JCTree.JCVariableDecl) field;
         if (f.mods.annotations == null) return false;
         for (JCTree.JCAnnotation childAnnotation : f.mods.annotations) {
-            if (childAnnotation.getAnnotationType().toString().equals(annotationName)) return true;
+            if (childAnnotation.toString().equals("@" + annotationName) || childAnnotation.getAnnotationType().toString().equals(annotationName)) return true;
         }
         return false;
     }

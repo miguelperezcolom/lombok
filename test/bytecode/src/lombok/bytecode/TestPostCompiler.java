@@ -26,14 +26,33 @@ import static org.junit.Assert.*;
 import java.io.File;
 import java.io.IOException;
 
+import com.sun.tools.javac.api.JavacTool;
 import lombok.core.DiagnosticsReceiver;
 import lombok.core.PostCompiler;
 
 import org.junit.Test;
 
+import javax.tools.JavaCompiler;
+import javax.tools.ToolProvider;
+
 public class TestPostCompiler {
 	@Test
 	public void testPostCompiler() throws IOException {
+
+		System.setProperty("java.home", "/home/miguel/jdks/jdk1.7.0_80");
+		try {
+			Class<?> c = Class.forName("com.sun.tools.javac.api.JavacTool");
+			JavacTool i = (JavacTool) c.newInstance();
+			System.out.println(i);
+		} catch (ClassNotFoundException e) {
+			e.printStackTrace();
+		} catch (IllegalAccessException e) {
+			e.printStackTrace();
+		} catch (InstantiationException e) {
+			e.printStackTrace();
+		}
+		JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
+
 		byte[] compiled = TestClassFileMetaData.compile(new File("test/bytecode/resource/PostCompileSneaky.java"));
 		DiagnosticsReceiver receiver = new DiagnosticsReceiver() {
 			@Override public void addWarning(String message) {
@@ -51,4 +70,25 @@ public class TestPostCompiler {
 		assertNotSame("Post-compiler did not do anything; we expected it to remove a Lombok.sneakyThrow() call.", compiled, transformed);
 		assertTrue("After removing a sneakyThrow the classfile got... bigger (or stayed equal in size). Huh?", transformed.length < compiled.length);
 	}
-}
+
+	@Test
+	public void testMateuMDDEntityPostCompiler() throws IOException {
+		File f = new File("test/bytecode/resource/Entidad.java");
+		System.out.println(f.getAbsolutePath());
+		byte[] compiled = TestClassFileMetaData.compile(f);
+		DiagnosticsReceiver receiver = new DiagnosticsReceiver() {
+			@Override public void addWarning(String message) {
+				fail("Warning during post compilation processing of a sneakyThrow call: " + message);
+			}
+
+			@Override public void addError(String message) {
+				fail("Error during post compilation processing of a sneakyThrow call: " + message);
+			}
+		};
+		assertTrue("Before post compilation, expected lombok.Lombok.sneakyThrow() call in compiled code, but it's not there",
+				new ClassFileMetaData(compiled).usesMethod("lombok/Lombok", "sneakyThrow"));
+		byte[] transformed = PostCompiler.applyTransformations(compiled, "PostCompileSneaky.java", receiver);
+
+		assertNotSame("Post-compiler did not do anything; we expected it to remove a Lombok.sneakyThrow() call.", compiled, transformed);
+		assertTrue("After removing a sneakyThrow the classfile got... bigger (or stayed equal in size). Huh?", transformed.length < compiled.length);
+	}}

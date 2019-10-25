@@ -45,6 +45,8 @@
 		<dependency org="org.eclipse.custom" name="ecj" rev="4.3.1" conf="ecj7->default; contrib->sources" />
 		<dependency org="org.eclipse.jdt.core.compiler" name="ecj" rev="4.6.1" conf="ecj8->default; contrib->sources" />
 		<dependency org="org.eclipse.jdt" name="ecj" rev="3.15.1" conf="ecj9->default; eclipseBuild->default" />
+		<dependency org="org.eclipse.jface" name="org.eclipse.jface" rev="3.5.0.I20090525-2000" conf="ecj9->default; eclipseBuild->default" />
+		<dependency org="org.eclipse.jface" name="org.eclipse.jface.text" rev="3.2.0.v20060605-1400"  conf="ecj9->default; eclipseBuild->default"/>
 <!--
 		<dependency org="org.eclipse.jdt" name="org.eclipse.jdt.compiler.apt" rev="1.3.300" conf="ecj9->default; eclipseBuild->default">
 			<exclude name='org.eclipse.core.filesystem' />

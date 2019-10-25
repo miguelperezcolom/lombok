@@ -28,6 +28,7 @@ import com.sun.tools.javac.util.ListBuffer;
 import lombok.AccessLevel;
 import lombok.MateuMDDEntity;
 import lombok.core.AnnotationValues;
+import lombok.javac.Javac;
 import lombok.javac.JavacAnnotationHandler;
 import lombok.javac.JavacNode;
 import lombok.javac.JavacTreeMaker;
@@ -67,12 +68,32 @@ public class HandleMateuMDDEntity extends JavacAnnotationHandler<MateuMDDEntity>
 		//handleConstructor.generateRequiredArgsConstructor(typeNode, AccessLevel.PUBLIC, staticConstructorName, SkipIfConstructorExists.YES, annotationNode);
 		handleConstructor.generateExtraNoArgsConstructor(typeNode, annotationNode);
 		generateEntityAnnotation(typeNode, annotationNode);
-		generateVersionField(typeNode, annotationNode);
-		generateIdField(typeNode, annotationNode);
+		boolean extiende = false;
+		if (typeNode.get() instanceof JCTree.JCClassDecl) {
+			JCTree.JCClassDecl d = (JCTree.JCClassDecl) typeNode.get();
+			JCTree extendsClause = Javac.getExtendsClause(d);
+			if (extendsClause != null) {
+				extiende = true;
+			}
+
+		}
+
+		if (!extiende) {
+			generateVersionField(typeNode, annotationNode, annotationNode);
+			generateIdField(typeNode, annotationNode, annotationNode);
+		}
 		handleGetter.generateGetterForType(typeNode, annotationNode, AccessLevel.PUBLIC, true, List.<JCAnnotation>nil());
 		handleSetter.generateSetterForType(typeNode, annotationNode, AccessLevel.PUBLIC, true, List.<JCAnnotation>nil(), List.<JCAnnotation>nil());
-		handleEqualsAndHashCode.generateMethods(typeNode, annotationNode, List.<JCTree.JCAnnotation>nil());
-		generateToStringForType(typeNode, annotationNode);
+		if (!extiende) {
+			handleEqualsAndHashCode.generateMethods(typeNode, annotationNode, annotationNode, List.<JCTree.JCAnnotation>nil());
+			generateToStringForType(typeNode, annotationNode);
+		}
+
+		if (false) {
+			System.out.println("################################################################################");
+			System.out.println(typeNode);
+			System.out.println("################################################################################");
+		}
 	}
 
 	private void generateToStringForType(JavacNode typeNode, JavacNode annotationNode) {
@@ -82,10 +103,13 @@ public class HandleMateuMDDEntity extends JavacAnnotationHandler<MateuMDDEntity>
 			JavacTreeMaker maker = typeNode.getTreeMaker();
 			ListBuffer<JCTree.JCStatement> statements = new ListBuffer<JCTree.JCStatement>();
 
-			java.util.List<JavacNode> idFields = HandleJPAEqualsAndHashCode.getIdFields(typeNode, maker);
+			java.util.List<JavacNode> idFields = HandleJPAEqualsAndHashCode.getIdFields(typeNode, annotationNode, maker);
 
-			if (!MemberExistsResult.NOT_EXISTS.equals(methodExists("getName", typeNode, false, 0))) {
-				statements.append(maker.Return(maker.Apply(List.<JCTree.JCExpression>nil(), maker.Select(maker.Ident(typeNode.toName("this")), typeNode.toName("getName")), List.<JCTree.JCExpression>nil())));
+
+			if (!MemberExistsResult.NOT_EXISTS.equals(methodExists("getName", typeNode, false, 0)) || HandleJPAEqualsAndHashCode.getNameFields(typeNode, maker).size() > 0 || !MemberExistsResult.NOT_EXISTS.equals(JavacHandlerUtil.fieldExists("name", typeNode))) {
+				JCTree.JCExpression concatenation = maker.Literal("");
+				concatenation = maker.Binary(CTC_PLUS, concatenation, maker.Apply(List.<JCTree.JCExpression>nil(), maker.Select(maker.Ident(typeNode.toName("this")), typeNode.toName("getName")), List.<JCTree.JCExpression>nil()));
+				statements.append(maker.Return(concatenation));
 			} else if (idFields.size() > 0) {
 				JCTree.JCExpression concatenation = maker.Literal("");
 				for (int pos = 0; pos < idFields.size(); pos++) {
@@ -107,7 +131,12 @@ public class HandleMateuMDDEntity extends JavacAnnotationHandler<MateuMDDEntity>
 				List<JCTree.JCExpression> printArgs = List.from(new JCTree.JCExpression[] {callClassSimpleName});
 				printExpression = maker.Apply(List.<JCTree.JCExpression>nil(), printExpression, printArgs);
 
-				statements.append(maker.Return(printExpression));
+
+				JCTree.JCExpression concatenation = maker.Literal("");
+				concatenation = maker.Binary(CTC_PLUS, concatenation, printExpression);
+				statements.append(maker.Return(concatenation));
+
+				//statements.append(maker.Return(printExpression));
 			}
 
 			JCTree.JCBlock body = maker.Block(0, statements.toList());
@@ -123,23 +152,25 @@ public class HandleMateuMDDEntity extends JavacAnnotationHandler<MateuMDDEntity>
 		addAnnotation(typeDecl.mods, typeNode, source.get().pos, source.get(), typeNode.getContext(),"javax.persistence.Entity", null);
 	}
 
-	private void generateVersionField(JavacNode typeNode, JavacNode source) {
+	private void generateVersionField(JavacNode typeNode, JavacNode annotationNode, JavacNode source) {
 
 		JavacTreeMaker maker = typeNode.getTreeMaker();
+        java.util.List<JavacNode> versionFields = HandleJPAEqualsAndHashCode.getVersionFields(typeNode, annotationNode, maker);
 
-		JCTree.JCModifiers mods = maker.Modifiers(toJavacModifier(AccessLevel.PACKAGE));
+        if (versionFields.size() == 0) {
+            JCTree.JCModifiers mods = maker.Modifiers(toJavacModifier(AccessLevel.PACKAGE));
 
-		JCTree.JCVariableDecl def;
-		JavacNode field = injectField(typeNode, def = maker.VarDef(mods, typeNode.toName("__version"), maker.TypeIdent(CTC_INT), maker.Literal(0)));
-		addAnnotation(def.mods, field, source.get().pos, source.get(), typeNode.getContext(),"javax.persistence.Version", null);
-		handleGetter.generateGetterForField(field, source.get(), AccessLevel.PROTECTED, false, List.<JCAnnotation>nil());
-
+            JCTree.JCVariableDecl def;
+            JavacNode field = injectField(typeNode, def = maker.VarDef(mods, typeNode.toName("__version"), maker.TypeIdent(CTC_INT), maker.Literal(0)));
+            addAnnotation(def.mods, field, source.get().pos, source.get(), typeNode.getContext(), "javax.persistence.Version", null);
+            handleGetter.generateGetterForField(field, source.get(), AccessLevel.PROTECTED, false, List.<JCAnnotation>nil());
+        }
 	}
 
-	private void generateIdField(JavacNode typeNode, JavacNode source) {
+	private void generateIdField(JavacNode typeNode, JavacNode annotationNode, JavacNode source) {
 
 		JavacTreeMaker maker = typeNode.getTreeMaker();
-		java.util.List<JavacNode> idFields = HandleJPAEqualsAndHashCode.getIdFields(typeNode, maker);
+		java.util.List<JavacNode> idFields = HandleJPAEqualsAndHashCode.getIdFields(typeNode, annotationNode, maker);
 
 		if (idFields.size() == 0) {
 			JCTree.JCModifiers mods = maker.Modifiers(toJavacModifier(AccessLevel.PRIVATE));

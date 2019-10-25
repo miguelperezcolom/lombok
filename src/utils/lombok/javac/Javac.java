@@ -24,15 +24,18 @@ package lombok.javac;
 import static lombok.javac.JavacTreeMaker.TreeTag.treeTag;
 import static lombok.javac.JavacTreeMaker.TypeTag.typeTag;
 
+import java.lang.annotation.Annotation;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import javax.lang.model.element.AnnotationMirror;
 import javax.lang.model.type.NoType;
 import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeVisitor;
@@ -440,6 +443,21 @@ public class Javac {
 		@Override
 		public <R, P> R accept(TypeVisitor<R, P> v, P p) {
 			return v.visitNoType(this, p);
+		}
+
+		@Override
+		public List<? extends AnnotationMirror> getAnnotationMirrors() {
+			return null;
+		}
+
+		@Override
+		public <A extends Annotation> A getAnnotation(Class<A> annotationType) {
+			return null;
+		}
+
+		@Override
+		public <A extends Annotation> A[] getAnnotationsByType(Class<A> annotationType) {
+			return null;
 		}
 	}
 	
