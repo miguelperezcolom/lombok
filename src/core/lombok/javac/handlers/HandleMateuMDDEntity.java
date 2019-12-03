@@ -26,6 +26,7 @@ import com.sun.tools.javac.tree.JCTree.JCAnnotation;
 import com.sun.tools.javac.util.List;
 import com.sun.tools.javac.util.ListBuffer;
 import lombok.AccessLevel;
+import lombok.ConfigurationKeys;
 import lombok.MateuMDDEntity;
 import lombok.core.AnnotationValues;
 import lombok.javac.Javac;
@@ -65,8 +66,9 @@ public class HandleMateuMDDEntity extends JavacAnnotationHandler<MateuMDDEntity>
 		//String staticConstructorName = annotation.getInstance().staticConstructor();
 		
 		// TODO move this to the end OR move it to the top in eclipse.
-		//handleConstructor.generateRequiredArgsConstructor(typeNode, AccessLevel.PUBLIC, staticConstructorName, SkipIfConstructorExists.YES, annotationNode);
-		handleConstructor.generateExtraNoArgsConstructor(typeNode, annotationNode);
+		String staticConstructorName = ""; //annotation.getInstance().staticConstructor();
+		handleConstructor.generateRequiredArgsConstructor(typeNode, AccessLevel.PUBLIC, staticConstructorName, HandleConstructor.SkipIfConstructorExists.YES, annotationNode);
+		generateExtraNoArgsConstructor(typeNode, annotationNode);
 		generateEntityAnnotation(typeNode, annotationNode);
 		boolean extiende = false;
 		if (typeNode.get() instanceof JCTree.JCClassDecl) {
@@ -94,6 +96,14 @@ public class HandleMateuMDDEntity extends JavacAnnotationHandler<MateuMDDEntity>
 			System.out.println(typeNode);
 			System.out.println("################################################################################");
 		}
+	}
+
+	private void generateExtraNoArgsConstructor(JavacNode typeNode, JavacNode source) {
+		/*
+		Boolean v = typeNode.getAst().readConfiguration(ConfigurationKeys.NO_ARGS_CONSTRUCTOR_EXTRA_PRIVATE);
+		if (v == null || !v) return;
+		*/
+		handleConstructor.generate(typeNode, AccessLevel.PUBLIC, List.<JCAnnotation>nil(), List.<JavacNode>nil(), true, null, HandleConstructor.SkipIfConstructorExists.NO, source, true);
 	}
 
 	private void generateToStringForType(JavacNode typeNode, JavacNode annotationNode) {
