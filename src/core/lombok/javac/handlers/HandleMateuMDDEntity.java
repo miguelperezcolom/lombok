@@ -103,7 +103,7 @@ public class HandleMateuMDDEntity extends JavacAnnotationHandler<MateuMDDEntity>
 		Boolean v = typeNode.getAst().readConfiguration(ConfigurationKeys.NO_ARGS_CONSTRUCTOR_EXTRA_PRIVATE);
 		if (v == null || !v) return;
 		*/
-		handleConstructor.generate(typeNode, AccessLevel.PUBLIC, List.<JCAnnotation>nil(), List.<JavacNode>nil(), true, null, HandleConstructor.SkipIfConstructorExists.NO, source, true);
+		handleConstructor.generate(typeNode, AccessLevel.PROTECTED, List.<JCAnnotation>nil(), List.<JavacNode>nil(), true, null, HandleConstructor.SkipIfConstructorExists.NO, source, true);
 	}
 
 	private void generateToStringForType(JavacNode typeNode, JavacNode annotationNode) {
