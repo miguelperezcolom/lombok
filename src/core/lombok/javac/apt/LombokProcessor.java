@@ -59,6 +59,7 @@ import com.sun.tools.javac.util.Context;
 import lombok.Lombok;
 import lombok.core.CleanupRegistry;
 import lombok.core.DiagnosticsReceiver;
+import lombok.core.EntityAnnotationProcessor;
 import lombok.javac.JavacTransformer;
 import lombok.permit.Permit;
 
@@ -296,6 +297,9 @@ public class LombokProcessor extends AbstractProcessor {
 			cleanup.run();
 			return false;
 		}
+
+
+		if (!new EntityAnnotationProcessor(processingEnv).process(annotations, roundEnv)) return false;
 		
 		// We have: A sorted set of all priority levels: 'priorityLevels'
 		

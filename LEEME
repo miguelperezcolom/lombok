@@ -1,0 +1,11 @@
+paso 1: para compilar
+>ant
+
+paso2: para instalar localmente
+>el contenido de install.sh
+
+paso3: para probar
+>mvn compile del módulo maven-tester
+
+paso4: para deploy
+>el contenido de deploy-all.sh
