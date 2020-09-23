@@ -299,7 +299,7 @@ public class LombokProcessor extends AbstractProcessor {
 		}
 
 
-		if (!new EntityAnnotationProcessor(processingEnv).process(annotations, roundEnv)) return false;
+		//if (!new EntityAnnotationProcessor(processingEnv).process(annotations, roundEnv)) return false;
 		
 		// We have: A sorted set of all priority levels: 'priorityLevels'
 		

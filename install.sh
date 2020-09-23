@@ -1,1 +1,1 @@
-mvn install:install-file -DgroupId=io.mateu -DartifactId=lombok -Dversion=1.18.11.95 -Dpackaging=jar -Dfile=dist/lombok-1.18.11.jar
+mvn install:install-file -DgroupId=io.mateu -DartifactId=lombok -Dversion=1.18.11.96 -Dpackaging=jar -Dfile=dist/lombok-1.18.11.jar

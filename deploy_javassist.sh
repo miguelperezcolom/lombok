@@ -1,0 +1,1 @@
+mvn deploy:deploy-file -DgroupId=org.javassist -DartifactId=javassist -Dversion=3.27.0-GA -Dpackaging=jar -Dfile=javassist.jar -DrepositoryId=mateu-central  -Durl=http://nexus.mateu.io/repository/mateu-central/

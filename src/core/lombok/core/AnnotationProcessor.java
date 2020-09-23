@@ -63,7 +63,7 @@ public class AnnotationProcessor extends AbstractProcessor {
 		abstract boolean process(Set<? extends TypeElement> annotations, RoundEnvironment roundEnv);
 	}
 	
-	private final List<ProcessorDescriptor> registered = Arrays.asList(new JavacDescriptor(), new EcjDescriptor(), new MateuMDDEntityDescriptor());
+	private final List<ProcessorDescriptor> registered = Arrays.asList(new JavacDescriptor(), new EcjDescriptor());
 	private final List<ProcessorDescriptor> active = new ArrayList<ProcessorDescriptor>();
 	private final List<String> delayedWarnings = new ArrayList<String>();
 	
@@ -171,24 +171,6 @@ public class AnnotationProcessor extends AbstractProcessor {
 		}
 	}
 
-	static class MateuMDDEntityDescriptor extends ProcessorDescriptor {
-		@Override String getName() {
-			return "MateuMDDEntity";
-		}
-
-		@Override boolean want(ProcessingEnvironment procEnv, List<String> delayedWarnings) {
-			if (!procEnv.getClass().getName().startsWith("org.eclipse.jdt.")) return false;
-
-			// Lombok used to work as annotation processor to ecj but that never actually worked properly, so we disabled the feature in 0.10.0.
-			// Because loading lombok as an agent in any ECJ-based non-interactive tool works just fine, we're not going to generate any warnings, as we'll
-			// likely generate more false positives than be helpful.
-			return true;
-		}
-
-		@Override boolean process(Set<? extends TypeElement> annotations, RoundEnvironment roundEnv) {
-			return new EntityAnnotationProcessor().process(annotations, roundEnv);
-		}
-	}
 	
 	@Override public void init(ProcessingEnvironment procEnv) {
 		super.init(procEnv);
